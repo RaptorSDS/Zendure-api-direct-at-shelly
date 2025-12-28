@@ -1,7 +1,7 @@
 // Script 3: Regelung + Zendure-Steuerung mit SmartMode und Winter-Backup
 // Läuft auf dem Shelly Pro 3EM
 
-let ZENDURE_IP   = "192.168.2.35";
+let ZENDURE_IP   = "192.168.xxxx";
 let ZENDURE_PORT = 80;
 
 // Konfiguration (angepasst an dein ESPEasy-Script)
@@ -107,7 +107,7 @@ function getSocPercent(cb) {
 // Zendure ansteuern
 function sendZendure(acMode, inputLimit, outputLimit, minSoc) {
   let body = {
-    sn: "HOA1NPN6N281176",
+    sn: "HOA1NPxxxxx",
     properties: {
       acMode:      acMode,
       inputLimit:  inputLimit,

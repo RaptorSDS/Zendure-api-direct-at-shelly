@@ -9,7 +9,7 @@ let MAX_POWER      = 800;  // Max. Ladeleistung
 let SUMMER_MIN_SOC = 150;  // 15% in Zehntel %
 let WINTER_MIN_SOC = 600;  // 60% in Zehntel %
 let SUMMER_NIGHT_W = 150;  // Sommer-Nacht-Entladeleistung
-let OFF_THRESHOLD  = 70;   // AUS-Schwelle Last (W)
+let OFF_THRESHOLD  = 50;   // AUS-Schwelle Last (W)
 let MIN_POWER      = 50;   // Mindestladeleistung (W)
 let ON_THRESHOLD   = -50;  // Einspeise-Schwelle (W)
 

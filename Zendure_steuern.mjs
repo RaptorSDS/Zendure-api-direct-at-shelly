@@ -1,5 +1,6 @@
 // Script 3: Regelung + Zendure-Steuerung mit SmartMode und Winter-Backup
 // Läuft auf dem Shelly Pro 3EM
+// IP und Seriennummer setzen !!!!
 
 let ZENDURE_IP   = "192.168.xxxx";
 let ZENDURE_PORT = 80;
@@ -30,11 +31,11 @@ let laden_aktiv = 0;
 // globaler Zustand
 let GLOBAL_STATE = {
   isNight: 0,
-  dst: 0
+  dst: 0,
+  notladen: 0  // 0=normal, 1=Notladung aktiv
 };
 
 // --- Hilfsfunktionen ---
-
 function updateDST() {
   Shelly.call("Sys.GetStatus", {}, function(res, err) {
     if (err) {
@@ -49,7 +50,7 @@ function updateDST() {
 function getNetPower() {
   let em = Shelly.getComponentStatus("em", 0);  // Pro 3EM
   let p = em.total_act_power;                  // W, >0 = Bezug, <0 = Einspeisung
-    print("EM status:", JSON.stringify(em));
+  print("EM status:", JSON.stringify(em));
   print("Net power p =", p, "W");
   return p;
 }
@@ -107,7 +108,7 @@ function getSocPercent(cb) {
 // Zendure ansteuern
 function sendZendure(acMode, inputLimit, outputLimit, minSoc) {
   let body = {
-    sn: "HOA1NPxxxxx",
+    sn: "xxxx",
     properties: {
       acMode:      acMode,
       inputLimit:  inputLimit,
@@ -136,28 +137,49 @@ function sendZendure(acMode, inputLimit, outputLimit, minSoc) {
 }
 
 // --- Haupt-Regel-Loop ---
-
 function mainRegelLoop() {
   let dst     = GLOBAL_STATE.dst;
-  let netP    = getNetPower(); // Dummy#VZPower-Ersatz
-  let minSoc  = dst ? SUMMER_MIN_SOC : WINTER_MIN_SOC;
+  let netP    = getNetPower();
   let isNight = GLOBAL_STATE.isNight;
+  let minSoc  = dst ? SUMMER_MIN_SOC : WINTER_MIN_SOC;
 
   getSocPercent(function (socPercent) {
     let acMode, inputLimit, outputLimit;
 
-    // Winter-Backup-Logik: tagsüber SoC mindestens 10% halten, sonst auf 15% nachladen
+    // === WINTER-BACKUP-LOGIK (Höchste Priorität) ===
     if (dst === 0 && isNight === 0) {
-      if (socPercent < 10) {
+      if (socPercent < 10 && GLOBAL_STATE.notladen === 0) {
+        // START Notladung
         acMode      = 1;
-        inputLimit  = MIN_POWER;
+        inputLimit  = 150;
         outputLimit = 0;
-        minSoc      = 150;       // 15% Backup
-        print("WINTER-BACKUP: SOC < 10%, forced charge to 15%");
+        minSoc      = 150;
+        GLOBAL_STATE.notladen = 1;
+        print("WINTER-BACKUP: SOC < 10%, Notladung GESTARTET -> Ziel 15%");
+      } 
+      else if (socPercent >= 15 && GLOBAL_STATE.notladen === 1) {
+        // STOP Notladung
+        acMode      = 1;
+        inputLimit  = 0;
+        outputLimit = 0;
+        GLOBAL_STATE.notladen = 0;
+        minSoc      = WINTER_MIN_SOC;
+        print("WINTER-BACKUP: SOC >= 15%, Notladung BEENDET");
       }
     }
 
-    if (acMode === undefined) {
+    // === NOTLADUNG AKTIV? -> Überschussladen BLOCKIEREN ===
+    if (GLOBAL_STATE.notladen === 1) {
+      // Notladung läuft weiter (auch wenn SoC jetzt >=15%)
+      acMode      = 1;
+      inputLimit  = 150;
+      outputLimit = 0;
+      minSoc      = 150;
+      print("WINTER-BACKUP: Notladung AKTIV, Überschussladen blockiert");
+    }
+
+    // === NORMALE REGELUNG (nur wenn notladen=0) ===
+    if (GLOBAL_STATE.notladen === 0 && acMode === undefined) {
 
       // SOMMER
       if (dst === 1) {
@@ -170,15 +192,12 @@ function mainRegelLoop() {
           // Tag: dynamisches Überschussladen
           if (netP < ON_THRESHOLD) {
             let charge = netP * -0.5;
-
             if (charge < MIN_POWER) charge = MIN_POWER;
-
             if (charge <= 100) {
               charge = Math.floor(charge / 10) * 10;
             } else {
               charge = Math.floor(charge / 5) * 5;
             }
-
             if (charge > MAX_POWER) charge = MAX_POWER;
 
             acMode      = 1;
@@ -199,19 +218,16 @@ function mainRegelLoop() {
           }
         }
 
-      // WINTER (ohne gerade aktiven Backup-Zwangsmodus)
+      // WINTER - Überschussladen (nur wenn notladen=0)
       } else {
         if (netP < -50) {
           let charge = netP * -0.5;
-
           if (charge < MIN_POWER) charge = MIN_POWER;
-
           if (charge <= 100) {
             charge = Math.floor(charge / 10) * 10;
           } else {
             charge = Math.floor(charge / 5) * 5;
           }
-
           if (charge > MAX_POWER) charge = MAX_POWER;
 
           acMode      = 1;
@@ -227,12 +243,15 @@ function mainRegelLoop() {
       }
     }
 
+    // Fallback wenn nichts gesetzt
     if (acMode === undefined) {
       acMode      = 1;
       inputLimit  = 0;
       outputLimit = 0;
+      minSoc      = dst ? SUMMER_MIN_SOC : WINTER_MIN_SOC;
     }
 
+    // Shadow-Check und Zendure-Senden
     if (
       acMode      !== shadow.acMode ||
       inputLimit  !== shadow.inputLimit ||
@@ -249,8 +268,8 @@ function mainRegelLoop() {
           outputLimit +
           " minSoc=" +
           minSoc +
-          " smartMode=" +
-          SMART_MODE
+          " notladen=" +
+          GLOBAL_STATE.notladen
       );
 
       shadow.acMode      = acMode;

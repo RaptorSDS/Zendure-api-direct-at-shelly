@@ -84,7 +84,7 @@ function getSocPercent(cb) {
 
 function sendZendure(acMode, inputLimit, outputLimit, minSoc) {
   let body = {
-    sn: "HOA1Nxxxxxx,
+    sn: "HOA1Nxxxxxx",
     properties: {
       acMode:      acMode,
       inputLimit:  inputLimit,
@@ -148,11 +148,13 @@ function mainRegelLoop() {
 
       // Sommer-Tag: Überschussladen mit Hysterese
       if (dst === 1 && isNight === 0) {
-        if (ueberschuss > ON_THRESHOLD * -1 && !ladenStatusVorher) {
-          // Noch nicht laden
+        if (ladenStatusVorher && netP > OFF_THRESHOLD) {
+          // Hysterese-Aus: Erst bei mehr als +50W Bezug stoppen
+          inputLimit = 0;
           GLOBAL_STATE.laden_aktiv = 0;
-        } else if ((ueberschuss > ON_THRESHOLD * -1 && ladenStatusVorher) || ueberschuss <= ON_THRESHOLD * -1) {
-          // Laden mit Hysterese: Ein bei <= -50W, Aus erst bei >= +50W
+          print("Hysterese AUS: netP=" + netP + "W > +" + OFF_THRESHOLD);
+        } else if (netP < ON_THRESHOLD || ladenStatusVorher) {
+          // Laden mit Hysterese: Ein bei mehr als 50W Einspeisung, dann weiterladen bis zur Aus-Schwelle
           let charge = ueberschuss * 0.5;
           charge = Math.max(MIN_POWER, Math.min(MAX_POWER, charge));
           charge = charge <= 100 ? Math.floor(charge / 10) * 10 : Math.floor(charge / 5) * 5;
@@ -160,11 +162,9 @@ function mainRegelLoop() {
           inputLimit = charge;
           GLOBAL_STATE.laden_aktiv = 1;
           print("SOMMER-TAG LADEN: " + inputLimit + "W (Überschuss=" + ueberschuss + ")");
-        } else if (ladenStatusVorher && netP > OFF_THRESHOLD) {
-          // Hysterese-Aus: Nur bei +50W Bezug stoppen
-          inputLimit = 0;
+        } else {
+          // Noch nicht genug Einspeisung zum Laden
           GLOBAL_STATE.laden_aktiv = 0;
-          print("Hysterese AUS: netP=" + netP + "W > +" + OFF_THRESHOLD);
         }
 
       // Sommer-Nacht: Entladen
